@@ -78,6 +78,12 @@ guarddog pypi scan /tmp/triage/
 # Scan every package referenced in a requirements.txt file of a local folder
 guarddog pypi verify workspace/guarddog/requirements.txt
 
+# Verify with whitelist loaded from a specific whitelist.toml
+guarddog pypi verify workspace/guarddog/requirements.txt --whitelist-path whitelist.toml
+
+# Disable whitelist processing entirely (for testing)
+guarddog pypi verify workspace/guarddog/requirements.txt --disable-whitelist
+
 # Scan every package referenced in a requirements.txt file and output a sarif file - works only for verify
 guarddog pypi verify --output-format=sarif workspace/guarddog/requirements.txt
 
@@ -113,6 +119,28 @@ guarddog extension scan /tmp/my-extension/
 # Run in debug mode
 guarddog --log-level debug npm scan express
 ```
+
+### Whitelist configuration
+
+By default, GuardDog reads whitelist entries from `pyproject.toml` (configurable via `--whitelist-path`).
+Use `--disable-whitelist` to turn off suppression.
+
+```toml
+[tool.guarddog.allowlist]
+
+[[tool.guarddog.allowlist.packages]]
+name = "requests"
+version = "2.31.0"                    # optional
+rules = ["typosquatting", "unicode"] # optional; omit to suppress all rules for this dependency
+justification = "Reviewed by security team"
+```
+
+Fields:
+
+* `name` (required): dependency/artifact name
+* `version` (optional): exact version match
+* `rules` (optional): list of rule IDs to suppress; if omitted, all rule IDs are suppressed for the dependency
+* `justification` (optional): reason shown in output for suppressed findings
 
 
 ## Heuristics

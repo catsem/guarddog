@@ -1,6 +1,7 @@
 import unittest
 import unittest.mock as mock
 import zipfile
+from click.testing import CliRunner
 
 import tarsafe
 
@@ -51,6 +52,55 @@ class TestCli(unittest.TestCase):
         """
         rules = guarddog.cli._get_rule_param((), (), ECOSYSTEM.PYPI)
         assert rules is None
+
+    def test_scan_command_default_whitelist_options(self):
+        """Ensure scan subcommand forwards default whitelist options."""
+        runner = CliRunner()
+        with mock.patch("guarddog.cli._scan") as scan_mock:
+            result = runner.invoke(guarddog.cli.cli, ["pypi", "scan", "requests"])
+
+        self.assertEqual(result.exit_code, 0)
+        scan_mock.assert_called_once()
+        _, kwargs = scan_mock.call_args
+        self.assertEqual(kwargs["whitelist_path"], "pyproject.toml")
+        self.assertFalse(kwargs["disable_whitelist"])
+
+    def test_scan_command_disable_whitelist(self):
+        """Ensure scan subcommand forwards explicit whitelist flags."""
+        runner = CliRunner()
+        with mock.patch("guarddog.cli._scan") as scan_mock:
+            result = runner.invoke(
+                guarddog.cli.cli,
+                [
+                    "pypi",
+                    "scan",
+                    "requests",
+                    "--whitelist-path",
+                    "custom-pyproject.toml",
+                    "--disable-whitelist",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        scan_mock.assert_called_once()
+        _, kwargs = scan_mock.call_args
+        self.assertEqual(kwargs["whitelist_path"], "custom-pyproject.toml")
+        self.assertTrue(kwargs["disable_whitelist"])
+
+    def test_verify_command_default_whitelist_options(self):
+        """Ensure verify subcommand forwards default whitelist options."""
+        runner = CliRunner()
+        with mock.patch("guarddog.cli._verify") as verify_mock:
+            result = runner.invoke(
+                guarddog.cli.cli,
+                ["pypi", "verify", "requirements.txt"],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        verify_mock.assert_called_once()
+        _, kwargs = verify_mock.call_args
+        self.assertEqual(kwargs["whitelist_path"], "pyproject.toml")
+        self.assertFalse(kwargs["disable_whitelist"])
 
     def _test_local_directory_template(self, directory: str):
         # `directory` is a directory

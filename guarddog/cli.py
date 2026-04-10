@@ -21,6 +21,7 @@ from guarddog.reporters.reporter_factory import ReporterFactory, ReporterType
 
 from guarddog.scanners import get_package_scanner, get_project_scanner
 from guarddog.utils.archives import safe_extract
+from guarddog.utils.whitelist import Whitelist, apply_whitelist, apply_whitelist_to_scan
 
 EXIT_CODE_ISSUES_FOUND = 1
 
@@ -38,6 +39,18 @@ def common_options(fn):
         default=False,
         is_flag=True,
         help="Exit with a non-zero status code if at least one issue is identified",
+    )(fn)
+    fn = click.option(
+        "--disable-whitelist",
+        default=False,
+        is_flag=True,
+        help="Disable whitelist processing entirely (ignores --whitelist-path)",
+    )(fn)
+    fn = click.option(
+        "--whitelist-path",
+        default="pyproject.toml",
+        type=click.Path(),
+        help="Path to a pyproject.toml containing a [tool.guarddog.allowlist] section (default: pyproject.toml)",
     )(fn)
     fn = click.argument("target")(fn)
     return fn
@@ -147,7 +160,8 @@ def _get_rule_param(
 
 
 def _verify(
-    path, rules, exclude_rules, output_format, exit_non_zero_on_finding, ecosystem
+    path, rules, exclude_rules, output_format, exit_non_zero_on_finding, ecosystem,
+    whitelist_path="pyproject.toml", disable_whitelist=False,
 ):
     """Verify a requirements.txt file
 
@@ -162,6 +176,13 @@ def _verify(
         exit(1)
 
     dependencies, results = scanner.scan_local(path=path, rules=rule_param)
+
+    wl = Whitelist()
+    if not disable_whitelist:
+        wl = Whitelist.load(whitelist_path)
+
+    if wl:
+        results = apply_whitelist(results, wl)
 
     rule_docs = list(rule_param or _get_all_rules(ecosystem=ecosystem))
 
@@ -190,6 +211,8 @@ def _scan(
     output_format,
     exit_non_zero_on_finding,
     ecosystem: ECOSYSTEM,
+    whitelist_path="pyproject.toml",
+    disable_whitelist=False,
 ):
     """Scan a package
 
@@ -221,6 +244,11 @@ def _scan(
     except Exception as e:
         log.error(f"Error occurred while scanning target {identifier}: '{e}'\n")
         sys.exit(1)
+
+    if not disable_whitelist:
+        wl = Whitelist.load(whitelist_path)
+        if wl:
+            apply_whitelist_to_scan(result, wl, identifier, version)
 
     reporter = ReporterFactory.create_reporter(ReporterType.from_str(output_format))
     stdout, stderr = reporter.render_scan(result)
@@ -286,6 +314,8 @@ class CliEcosystem(click.Group):
             exclude_rules,
             output_format,
             exit_non_zero_on_finding,
+            whitelist_path,
+            disable_whitelist,
         ):
             return _scan(
                 target,
@@ -295,6 +325,8 @@ class CliEcosystem(click.Group):
                 output_format,
                 exit_non_zero_on_finding,
                 self.ecosystem,
+                whitelist_path=whitelist_path,
+                disable_whitelist=disable_whitelist,
             )
 
         @click.command("verify", help=f"Verify a given {self.ecosystem.name} package")
@@ -302,7 +334,8 @@ class CliEcosystem(click.Group):
         @verify_options
         @rule_options
         def verify_ecosystem(
-            target, rules, exclude_rules, output_format, exit_non_zero_on_finding
+            target, rules, exclude_rules, output_format, exit_non_zero_on_finding,
+            whitelist_path, disable_whitelist,
         ):
             return _verify(
                 target,
@@ -311,6 +344,8 @@ class CliEcosystem(click.Group):
                 output_format,
                 exit_non_zero_on_finding,
                 self.ecosystem,
+                whitelist_path=whitelist_path,
+                disable_whitelist=disable_whitelist,
             )
 
         @click.command(
@@ -333,14 +368,17 @@ for e in ECOSYSTEM:
 @common_options
 @verify_options
 @legacy_rules_options
-def verify(target, rules, exclude_rules, output_format, exit_non_zero_on_finding):
-    return verify(
+def verify(target, rules, exclude_rules, output_format, exit_non_zero_on_finding,
+           whitelist_path, disable_whitelist):
+    return _verify(
         target,
         rules,
         exclude_rules,
         output_format,
         exit_non_zero_on_finding,
         ECOSYSTEM.PYPI,
+        whitelist_path=whitelist_path,
+        disable_whitelist=disable_whitelist,
     )
 
 
@@ -349,7 +387,8 @@ def verify(target, rules, exclude_rules, output_format, exit_non_zero_on_finding
 @scan_options
 @legacy_rules_options
 def scan(
-    target, version, rules, exclude_rules, output_format, exit_non_zero_on_finding
+    target, version, rules, exclude_rules, output_format, exit_non_zero_on_finding,
+    whitelist_path, disable_whitelist,
 ):
     return _scan(
         target,
@@ -359,6 +398,8 @@ def scan(
         output_format,
         exit_non_zero_on_finding,
         ECOSYSTEM.PYPI,
+        whitelist_path=whitelist_path,
+        disable_whitelist=disable_whitelist,
     )
 
 

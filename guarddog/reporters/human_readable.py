@@ -6,6 +6,27 @@ from guarddog.ecosystems import ECOSYSTEM
 
 
 class HumanReadableReporter(BaseReporter):
+
+    @staticmethod
+    def print_suppressed(identifier: str, results: dict) -> str:
+        suppressed = results.get("suppressed", {})
+        if not suppressed:
+            return ""
+
+        lines = [""]
+        lines.append(
+            colored(
+                f"Suppressed findings for {identifier}:",
+                "cyan",
+                attrs=["bold"],
+            )
+        )
+        for rule, info in suppressed.items():
+            justification = info.get("justification", "")
+            suffix = f" (justification: {justification})" if justification else ""
+            lines.append(f"  - {rule}{suffix}")
+        lines.append("")
+        return "\n".join(lines)
     """
     HumanReadableReporter is a class that formats and prints scan results in a human-readable format.
     """
@@ -102,10 +123,14 @@ class HumanReadableReporter(BaseReporter):
         Args:
             scan_results (dict): The scan results to be reported.
         """
+        stdout = HumanReadableReporter.print_scan_results(
+            identifier=scan_results["package"], results=scan_results
+        )
+        stdout += HumanReadableReporter.print_suppressed(
+            identifier=scan_results["package"], results=scan_results
+        )
         return (
-            HumanReadableReporter.print_scan_results(
-                identifier=scan_results["package"], results=scan_results
-            ),
+            stdout,
             HumanReadableReporter.print_errors(
                 identifier=scan_results["package"], results=scan_results
             ),
@@ -118,15 +143,17 @@ class HumanReadableReporter(BaseReporter):
         scan_results: list[dict],
         ecosystem: ECOSYSTEM,
     ) -> tuple[str, str]:
+        stdout_parts = []
+        for s in scan_results:
+            part = HumanReadableReporter.print_scan_results(
+                identifier=s["dependency"], results=s["result"]
+            )
+            part += HumanReadableReporter.print_suppressed(
+                identifier=s["dependency"], results=s["result"]
+            )
+            stdout_parts.append(part)
         return (
-            "\n".join(
-                [
-                    HumanReadableReporter.print_scan_results(
-                        identifier=s["dependency"], results=s["result"]
-                    )
-                    for s in scan_results
-                ]
-            ),
+            "\n".join(stdout_parts),
             "\n".join(
                 [
                     HumanReadableReporter.print_errors(
