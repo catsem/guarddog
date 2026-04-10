@@ -1,6 +1,6 @@
 .DS_Store
 .vscode
-.env
+.*env
 **/__pycache__
 **/.pytest_cache
 evaluator/data/benign/*/

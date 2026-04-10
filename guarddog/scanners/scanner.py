@@ -12,7 +12,7 @@ from typing import List, Optional, Set, Tuple
 import requests
 
 from guarddog.analyzer.analyzer import Analyzer
-from guarddog.utils.archives import safe_extract
+from guarddog.utils.archives import extract_archives_recursively, safe_extract
 from guarddog.utils.config import PARALLELISM
 
 log = logging.getLogger("guarddog")
@@ -116,6 +116,10 @@ class PackageScanner:
 
         if rules is not None:
             rules = set(rules)
+
+        if os.path.isdir(path):
+            log.debug(f"Recursively extracting nested archives in '{path}'")
+            extract_archives_recursively(path)
 
         results = self.analyzer.analyze_sourcecode(path, rules=rules)
         callback(results)

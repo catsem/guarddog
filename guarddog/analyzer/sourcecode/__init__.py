@@ -75,7 +75,7 @@ semgrep_rule_file_names = list(
 # all yml files placed in the sourcecode directory are loaded as semgrep rules
 # refer to README.md for more information
 for file_name in semgrep_rule_file_names:
-    with open(os.path.join(current_dir, file_name), "r") as fd:
+    with open(os.path.join(current_dir, file_name), "r", encoding="utf-8") as fd:
         data = yaml.load(fd, Loader=SafeLoader)
         for rule in data["rules"]:
             for lang in rule["languages"]:
@@ -132,7 +132,7 @@ for file_name in yara_rule_file_names:
         ECOSYSTEM.EXTENSION if file_name.startswith(EXTENSION_YARA_PREFIX) else None
     )
 
-    with open(os.path.join(current_dir, file_name), "r") as fd:
+    with open(os.path.join(current_dir, file_name), "r", encoding="utf-8") as fd:
         match = re.search(description_regex, fd.read())
         rule_description = ""
         if match:

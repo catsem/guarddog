@@ -3,6 +3,7 @@ import os
 import pathlib
 import stat
 import zipfile
+from typing import Optional, Set
 
 import tarsafe  # type: ignore
 
@@ -201,3 +202,74 @@ def safe_extract(
                 zip_file.extract(member, path=target_directory)
     else:
         raise ValueError(f"unsupported archive extension: {source_archive}")
+
+
+def _archive_basename(path: str) -> str:
+    """Return a stable directory name for extracting an archive file."""
+    name = os.path.basename(path)
+    lower = name.lower()
+
+    # Keep known multi-part tar extensions intact when deriving basename.
+    for ext in (".tar.gz", ".tar.bz2", ".tar.xz"):
+        if lower.endswith(ext):
+            return name[: -len(ext)]
+
+    return os.path.splitext(name)[0]
+
+
+def extract_archives_recursively(
+    directory: str,
+    max_depth: int = 6,
+    _seen_archives: Optional[Set[str]] = None,
+) -> None:
+    """
+    Recursively extract supported archives in a directory tree.
+
+    This function reuses safe_extract for each discovered archive and then scans
+    extracted directories for nested archives.
+    """
+    if not os.path.isdir(directory):
+        return
+
+    if max_depth <= 0:
+        log.debug(f"Maximum recursive extraction depth reached for {directory}")
+        return
+
+    if _seen_archives is None:
+        _seen_archives = set()
+
+    ignored_dirs = {".git", ".venv", ".lvenv", "venv", "node_modules", "__pycache__"}
+
+    archives = []
+    for root, dirs, files in os.walk(directory):
+        # Avoid unpacking archives in dependency caches/environments when scanning large trees.
+        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+
+        for filename in files:
+            candidate = os.path.abspath(os.path.join(root, filename))
+            if is_supported_archive(candidate) and candidate not in _seen_archives:
+                archives.append(candidate)
+
+    for archive_path in archives:
+        _seen_archives.add(archive_path)
+
+        base_name = _archive_basename(archive_path)
+        target_dir = os.path.join(os.path.dirname(archive_path), base_name)
+
+        # Avoid re-extracting into an existing non-empty folder.
+        if os.path.isdir(target_dir) and os.listdir(target_dir):
+            log.debug(f"Skipping extraction for {archive_path}, '{target_dir}' already exists")
+            continue
+
+        os.makedirs(target_dir, exist_ok=True)
+        try:
+            safe_extract(archive_path, target_dir)
+        except Exception as e:
+            log.debug(f"Skipping archive {archive_path}: {e}")
+            continue
+
+        extract_archives_recursively(
+            target_dir,
+            max_depth=max_depth - 1,
+            _seen_archives=_seen_archives,
+        )
