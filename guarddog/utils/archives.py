@@ -221,7 +221,7 @@ def extract_archives_recursively(
     directory: str,
     max_depth: int = 6,
     _seen_archives: Optional[Set[str]] = None,
-) -> None:
+) -> Set[str]:
     """
     Recursively extract supported archives in a directory tree.
 
@@ -229,14 +229,16 @@ def extract_archives_recursively(
     extracted directories for nested archives.
     """
     if not os.path.isdir(directory):
-        return
+        return set()
 
     if max_depth <= 0:
         log.debug(f"Maximum recursive extraction depth reached for {directory}")
-        return
+        return set()
 
     if _seen_archives is None:
         _seen_archives = set()
+
+    extracted_dirs: Set[str] = set()
 
     ignored_dirs = {".git", ".venv", ".lvenv", "venv", "node_modules", "__pycache__"}
 
@@ -268,8 +270,12 @@ def extract_archives_recursively(
             log.debug(f"Skipping archive {archive_path}: {e}")
             continue
 
-        extract_archives_recursively(
+        extracted_dirs.add(target_dir)
+
+        extracted_dirs |= extract_archives_recursively(
             target_dir,
             max_depth=max_depth - 1,
             _seen_archives=_seen_archives,
         )
+
+    return extracted_dirs
