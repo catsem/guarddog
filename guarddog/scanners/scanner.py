@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import re
 import tempfile
 import typing
 from abc import abstractmethod
@@ -14,6 +15,7 @@ import requests
 from guarddog.analyzer.analyzer import Analyzer
 from guarddog.utils.archives import safe_extract
 from guarddog.utils.config import PARALLELISM
+from guarddog.utils.whitelist import Whitelist, apply_whitelist_to_scan
 
 log = logging.getLogger("guarddog")
 
@@ -96,16 +98,119 @@ class PackageScanner:
         super().__init__()
         self.analyzer = analyzer
 
+    @staticmethod
+    def _parse_package_dir_name(dirname: str) -> tuple[str, Optional[str]]:
+        """Parse a directory name like 'requests-2.28.0' or
+        'typing_extensions-4.15.0-py3-none-any' into (name, version).
+        Version is None if not detected."""
+        parts = dirname.split("-")
+        for i, part in enumerate(parts):
+            if i > 0 and re.match(r'^\d', part):
+                return "-".join(parts[:i]), parts[i]
+        return dirname, None
+
+    def _apply_whitelist_by_location_prefix(
+        self, result: dict, whitelist: Whitelist, fallback_version: Optional[str], source_path: str
+    ) -> None:
+        """Apply whitelist to results by parsing package name from location prefixes.
+        
+        Expects locations like "pkg-1.0/file.py:10" and extracts pkg name/version.
+        """
+        fallback_name, fallback_name_version = self._parse_package_dir_name(
+            os.path.basename(os.path.normpath(source_path))
+        )
+
+        findings = result.get("results", {})
+        suppressed: dict[str, dict] = {}
+        remaining: dict = {}
+
+        for rule, detail in findings.items():
+            if not detail:
+                remaining[rule] = detail
+                continue
+
+            if isinstance(detail, list):
+                remaining_findings = []
+                suppressed_findings = []
+                justification = ""
+                for finding in detail:
+                    location = finding.get("location", "")
+                    pkg_name, pkg_ver = self._extract_package_from_location(location)
+                    if not pkg_name:
+                        pkg_name = fallback_name
+                    if not pkg_ver:
+                        pkg_ver = fallback_name_version
+                    
+                    match = whitelist.find_match(pkg_name, pkg_ver or fallback_version, rule)
+                    if match:
+                        suppressed_findings.append(finding)
+                        if not justification:
+                            justification = match.justification or ""
+                    else:
+                        remaining_findings.append(finding)
+                
+                if suppressed_findings:
+                    suppressed[rule] = {
+                        "detail": suppressed_findings,
+                        "justification": justification,
+                    }
+
+                if remaining_findings:
+                    remaining[rule] = remaining_findings
+            else:
+                # String findings (metadata)
+                location = detail if isinstance(detail, str) else str(detail)
+                pkg_name, pkg_ver = self._extract_package_from_location(location)
+                if not pkg_name:
+                    pkg_name = fallback_name
+                if not pkg_ver:
+                    pkg_ver = fallback_name_version
+                match = whitelist.find_match(pkg_name, pkg_ver or fallback_version, rule)
+                if match:
+                    suppressed[rule] = {
+                        "detail": detail,
+                        "justification": match.justification or "",
+                    }
+                else:
+                    remaining[rule] = detail
+
+        if suppressed:
+            suppressed_count = 0
+            for info in suppressed.values():
+                detail = info.get("detail")
+                if isinstance(detail, list):
+                    suppressed_count += len(detail)
+                else:
+                    suppressed_count += 1
+            result["results"] = remaining
+            result["suppressed"] = suppressed
+            result["issues"] = max(0, result.get("issues", 0) - suppressed_count)
+
+    @staticmethod
+    def _extract_package_from_location(location: str) -> tuple[str, Optional[str]]:
+        """Extract package name and version from location like 'pkg-1.0/file.py:10'."""
+        if "/" not in location:
+            return "", None
+        prefix = location.split("/")[0]
+        return PackageScanner._parse_package_dir_name(prefix)
+
+    def discover_local_scan_targets(self, path: str) -> Set[str]:
+        """Discover local package directories to scan when no archives were extracted."""
+        return set()
+
     def scan_local(
-        self, path, rules=None, callback: typing.Callable[[dict], None] = noop
+        self, path, rules=None, callback: typing.Callable[[dict], None] = noop,
+        whitelist: Optional[Whitelist] = None, dep_version: Optional[str] = None,
     ) -> dict:
         """
-        Scans local package
+        Scans local package or directory tree
 
         Args:
             path (str): Path to the directory containing the package to analyze
             rules (set, optional): Set of rule names to use. Defaults to all rules.
             callback (typing.Callable[[dict], None], optional): Callback to apply to Analyzer output
+            whitelist (Whitelist, optional): Whitelist for suppressing findings
+            dep_version (str, optional): Package version for whitelist matching
 
         Raises:
             Exception: Analyzer exception
@@ -113,13 +218,16 @@ class PackageScanner:
         Returns:
             dict: Analyzer output with rules to results mapping
         """
-
         if rules is not None:
             rules = set(rules)
 
         results = self.analyzer.analyze_sourcecode(path, rules=rules)
+        
+        # Apply whitelist with per-package matching by location prefix
+        if whitelist:
+            self._apply_whitelist_by_location_prefix(results, whitelist, dep_version, path)
+        
         callback(results)
-
         return results
 
     @abstractmethod

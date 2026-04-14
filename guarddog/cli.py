@@ -228,27 +228,28 @@ def _scan(
         log.error(f"Command scan is not supported for ecosystem {ecosystem}")
         sys.exit(1)
 
+    wl = Whitelist()
+    if not disable_whitelist:
+        wl = Whitelist.load(whitelist_path)
+
     result = {"package": identifier}
     try:
         if os.path.isdir(identifier):
             log.debug(f"Considering that '{identifier}' is a local directory")
-            result |= scanner.scan_local(identifier, rule_param)
+            result |= scanner.scan_local(identifier, rule_param, whitelist=wl, dep_version=version)
         elif os.path.isfile(identifier):
             log.debug(f"Considering that '{identifier}' is a local archive file")
             with tempfile.TemporaryDirectory() as tempdir:
                 safe_extract(identifier, tempdir)
-                result |= scanner.scan_local(tempdir, rule_param)
+                result |= scanner.scan_local(tempdir, rule_param, whitelist=wl, dep_version=version)
         else:
             log.debug(f"Considering that '{identifier}' is a remote target")
             result |= scanner.scan_remote(identifier, version, rule_param)
+            if wl:
+                apply_whitelist_to_scan(result, wl, identifier, version)
     except Exception as e:
         log.error(f"Error occurred while scanning target {identifier}: '{e}'\n")
         sys.exit(1)
-
-    if not disable_whitelist:
-        wl = Whitelist.load(whitelist_path)
-        if wl:
-            apply_whitelist_to_scan(result, wl, identifier, version)
 
     reporter = ReporterFactory.create_reporter(ReporterType.from_str(output_format))
     stdout, stderr = reporter.render_scan(result)

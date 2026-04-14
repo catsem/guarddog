@@ -1,6 +1,7 @@
 .devcontainer/*
 .vscode/*
 .*
+!.github
 tests/*
 Dockerfile
 docker-compose*

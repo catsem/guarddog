@@ -150,20 +150,21 @@ class Analyzer:
 
         return {"results": results, "errors": errors, "issues": issues}
 
-    def analyze_sourcecode(self, path, rules=None) -> dict:
+    def analyze_sourcecode(self, path, rules=None, package_prefix: str = "") -> dict:
         """
         Analyzes the source code of a given package
 
         Args:
             path (str): path to directory of package
             rules (set, optional): Set of source code rules to analyze. Defaults to all rules.
+            package_prefix (str, optional): Prefix to add to finding locations (e.g. 'pkg-1.0/')
 
         Returns:
             dict[str]: map from each source code rule and their corresponding output
         """
-        semgrepscan_results = self.analyze_semgrep(path, rules)
+        semgrepscan_results = self.analyze_semgrep(path, rules, package_prefix)
 
-        yarascan_results = self.analyze_yara(path, rules)
+        yarascan_results = self.analyze_yara(path, rules, package_prefix)
 
         # Concatenate dictionaries together
         issues = semgrepscan_results["issues"] + yarascan_results["issues"]
@@ -172,7 +173,7 @@ class Analyzer:
 
         return {"issues": issues, "errors": errors, "results": results, "path": path}
 
-    def analyze_yara(self, path: str, rules: Optional[set] = None) -> dict:
+    def analyze_yara(self, path: str, rules: Optional[set] = None, package_prefix: str = "") -> dict:
         """
         Analyzes the IOCs of a given package
 
@@ -224,8 +225,11 @@ class Analyzer:
 
                         for s in m.strings:
                             for i in s.instances:
+                                location = f"{scan_file_target_relpath}:{i.offset}"
+                                if package_prefix:
+                                    location = f"{package_prefix}{location}"
                                 finding = {
-                                    "location": f"{scan_file_target_relpath}:{i.offset}",
+                                    "location": location,
                                     "code": self.trim_code_snippet(str(i.matched_data)),
                                     "message": m.meta.get(
                                         "description", f"{m.rule} rule matched"
@@ -249,7 +253,7 @@ class Analyzer:
 
         return {"results": results | rule_results, "errors": errors, "issues": issues}
 
-    def analyze_semgrep(self, path, rules=None) -> dict:
+    def analyze_semgrep(self, path, rules=None, package_prefix: str = "") -> dict:
         """
         Analyzes the source code of a given package
 
@@ -291,6 +295,10 @@ class Analyzer:
             rule_results = self._format_semgrep_response(
                 response, targetpath=targetpath
             )
+            if package_prefix:
+                for rule, findings in rule_results.items():
+                    for finding in findings:
+                        finding["location"] = f"{package_prefix}{finding['location']}"
             issues += sum(len(res) for res in rule_results.values())
 
             results = results | rule_results

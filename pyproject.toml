@@ -23,7 +23,7 @@ pygit2 = ">=1.11,<1.19"
 pyyaml = "^6.0"
 requests = "^2.29.0"
 semantic-version = "^2.10.0"
-semgrep = "^1.147.0"
+semgrep = ">=1.147.0,<1.158"
 tarsafe = "^0.0.5"
 termcolor = "^3.3.0"
 tomli = {version = "^2.0.1", python = "<3.11"}

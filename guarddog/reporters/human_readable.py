@@ -22,7 +22,10 @@ class HumanReadableReporter(BaseReporter):
             )
         )
         for rule, info in suppressed.items():
-            justification = info.get("justification", "")
+            if isinstance(info, dict):
+                justification = info.get("justification", "")
+            else:
+                justification = ""
             suffix = f" (justification: {justification})" if justification else ""
             lines.append(f"  - {rule}{suffix}")
         lines.append("")
